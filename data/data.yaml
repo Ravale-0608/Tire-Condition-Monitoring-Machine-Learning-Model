@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 3
+names: ['BAD_Tyres', 'BALD_Tyres', 'NORMAL_Tyres']
+
+roboflow:
+  workspace: mark-aft7n
+  project: tire-tread
+  version: 10
+  license: Public Domain
+  url: https://universe.roboflow.com/mark-aft7n/tire-tread/dataset/10

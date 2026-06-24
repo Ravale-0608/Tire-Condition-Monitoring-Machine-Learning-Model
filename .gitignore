@@ -1,0 +1,38 @@
+# Full image datasets (too large for GitHub — keep locally)
+data/train/
+data/valid/
+data/test/
+data/defective/
+data/good/
+data/flat.class/
+data/full.class/
+data/no-tire.class/
+data/Tyre_Condition_Dataset/NEW/
+data/Tyre_Condition_Dataset/SERVICEABLE/
+data/Tyre_Condition_Dataset/UNUSABLE/
+
+# Large data files (>100 MB GitHub limit)
+data/cleaning_report.csv
+data/Synthetic Automobile Tyre RUL Data.csv
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Model weights & checkpoints
+*.pt
+*.pth
+*.onnx
+*.weights
+runs/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
