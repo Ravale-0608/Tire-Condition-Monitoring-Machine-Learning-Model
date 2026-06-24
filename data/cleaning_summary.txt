@@ -1,0 +1,53 @@
+============================================================
+TIRE DATASET CLEANING SUMMARY
+============================================================
+Total images scanned : 13,656
+  Corrupt            : 0
+  Low resolution     : 0
+  Blurry             : 3,139  (Laplacian < 80.0)
+  Near-duplicates    : 4,760  (pHash Hamming <= 8)
+  Total flagged      : 6,858
+  Remaining clean    : 6,798
+
+------------------------------------------------------------
+CLASS DISTRIBUTION
+------------------------------------------------------------
+
+  [condition]
+    SERVICEABLE              306  ###############
+    NEW                      168  ########
+    UNUSABLE                  73  ###
+
+  [defective]
+    defective               1028  ########################################
+
+  [flat]
+    flat                     300  ###############
+
+  [full]
+    full                     300  ###############
+
+  [good]
+    good                     828  ########################################
+
+  [no_tire]
+    no_tire                  300  ###############
+
+  [tread_test]
+    yolo_mixed               814  ########################################
+
+  [tread_train]
+    yolo_mixed              8074  ########################################
+
+  [tread_valid]
+    yolo_mixed              1465  ########################################
+
+------------------------------------------------------------
+NEXT STEPS
+------------------------------------------------------------
+1. Open data/cleaning_report.csv — filter corrupt=True first
+2. Review blurry=True images (blur_score column)
+3. Tyre_Condition UNUSABLE only has 73 images — augment heavily
+4. Remove duplicates before train/val split
+
+Report saved to: C:\Users\raval\Desktop\Tire Model\data\cleaning_report.csv

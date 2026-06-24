@@ -14,6 +14,8 @@ data/Tyre_Condition_Dataset/UNUSABLE/
 # Large data files (>100 MB GitHub limit)
 data/cleaning_report.csv
 data/Synthetic Automobile Tyre RUL Data.csv
+data/quarantine/
+data/unified/
 
 # Python cache
 __pycache__/

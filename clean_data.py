@@ -10,267 +10,255 @@ Output:
   data/cleaning_summary.txt  — human-readable summary
 """
 
-import os
 import csv
-import json
 import hashlib
-from pathlib import Path
+import os
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 import cv2
-import numpy as np
 import imagehash
-from PIL import Image, UnidentifiedImageError
+import numpy as np
+from PIL import Image
 
 # ── Config ────────────────────────────────────────────────────────────────────
 DATA_ROOT = Path(__file__).parent / "data"
 
-# Quality thresholds (tune to your dataset)
-MIN_WIDTH        = 64          # pixels
-MIN_HEIGHT       = 64
-BLUR_THRESHOLD   = 80.0        # Laplacian variance below this = blurry
-PHASH_THRESHOLD  = 8           # Hamming distance ≤ this = near-duplicate
+MIN_WIDTH       = 64
+MIN_HEIGHT      = 64
+BLUR_THRESHOLD  = 80.0
+PHASH_THRESHOLD = 8       # Hamming distance ≤ this = near-duplicate
+WORKERS         = min(8, (os.cpu_count() or 4))
 
-# Sub-datasets: (folder, label_type, label_info)
-#   label_type "class_folder"  → each subfolder is a class
-#   label_type "flat_folder"   → all images in folder share one class name
-#   label_type "yolo"          → images/ + labels/ YOLO format
 DATASETS = [
-    # name                      path                                       type            class/label
-    ("tread_train",   DATA_ROOT / "train",                                "yolo",         "BAD_Tyres|BALD_Tyres|NORMAL_Tyres"),
-    ("tread_valid",   DATA_ROOT / "valid",                                "yolo",         "BAD_Tyres|BALD_Tyres|NORMAL_Tyres"),
-    ("tread_test",    DATA_ROOT / "test",                                  "yolo",         "BAD_Tyres|BALD_Tyres|NORMAL_Tyres"),
-    ("condition",     DATA_ROOT / "Tyre_Condition_Dataset",               "class_folder", ""),
-    ("defective",     DATA_ROOT / "defective",                            "flat_folder",  "defective"),
-    ("good",          DATA_ROOT / "good",                                  "flat_folder",  "good"),
-    ("flat",          DATA_ROOT / "flat.class",                            "flat_folder",  "flat"),
-    ("full",          DATA_ROOT / "full.class",                            "flat_folder",  "full"),
-    ("no_tire",       DATA_ROOT / "no-tire.class",                         "flat_folder",  "no_tire"),
+    ("tread_train", DATA_ROOT / "train",                  "yolo",         "yolo_mixed"),
+    ("tread_valid", DATA_ROOT / "valid",                  "yolo",         "yolo_mixed"),
+    ("tread_test",  DATA_ROOT / "test",                   "yolo",         "yolo_mixed"),
+    ("condition",   DATA_ROOT / "Tyre_Condition_Dataset", "class_folder", ""),
+    ("defective",   DATA_ROOT / "defective",              "flat_folder",  "defective"),
+    ("good",        DATA_ROOT / "good",                   "flat_folder",  "good"),
+    ("flat",        DATA_ROOT / "flat.class",             "flat_folder",  "flat"),
+    ("full",        DATA_ROOT / "full.class",             "flat_folder",  "full"),
+    ("no_tire",     DATA_ROOT / "no-tire.class",          "flat_folder",  "no_tire"),
 ]
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff"}
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def laplacian_variance(img_bgr):
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    return cv2.Laplacian(gray, cv2.CV_64F).var()
-
-
-def collect_images(dataset_name, path, label_type, class_hint):
-    """Yield (image_path, dataset_name, class_label) for every image in a sub-dataset."""
+def collect_images(ds_name, path, label_type, class_hint):
     path = Path(path)
     if not path.exists():
-        print(f"  [SKIP] {path} does not exist")
         return
-
     if label_type == "flat_folder":
         for f in path.iterdir():
             if f.suffix.lower() in IMAGE_EXTS:
-                yield f, dataset_name, class_hint
-
+                yield f, ds_name, class_hint
     elif label_type == "class_folder":
         for cls_dir in sorted(path.iterdir()):
             if cls_dir.is_dir():
                 for f in cls_dir.iterdir():
                     if f.suffix.lower() in IMAGE_EXTS:
-                        yield f, dataset_name, cls_dir.name
-
+                        yield f, ds_name, cls_dir.name
     elif label_type == "yolo":
         img_dir = path / "images"
-        if not img_dir.exists():
-            return
-        for f in img_dir.iterdir():
-            if f.suffix.lower() in IMAGE_EXTS:
-                yield f, dataset_name, "yolo_mixed"
+        if img_dir.exists():
+            for f in img_dir.iterdir():
+                if f.suffix.lower() in IMAGE_EXTS:
+                    yield f, ds_name, class_hint
 
 
-def check_image(img_path):
-    """Return dict of quality flags for one image."""
+def check_image(args):
+    img_path, ds_name, label = args
     result = {
-        "corrupt":       False,
-        "width":         0,
-        "height":        0,
-        "low_res":       False,
-        "blur_score":    None,
-        "blurry":        False,
-        "phash":         None,
-        "md5":           None,
+        "path": str(img_path), "dataset": ds_name, "label": label,
+        "corrupt": False, "width": 0, "height": 0,
+        "low_res": False, "blur_score": None, "blurry": False,
+        "phash": None, "md5": None, "duplicate": False,
     }
 
-    # MD5 for exact duplicates
     try:
         with open(img_path, "rb") as fh:
-            result["md5"] = hashlib.md5(fh.read()).hexdigest()
+            raw = fh.read()
+        result["md5"] = hashlib.md5(raw).hexdigest()
     except Exception:
         result["corrupt"] = True
         return result
 
-    # Pillow open (catches truncated / unreadable)
     try:
         with Image.open(img_path) as pil_img:
-            pil_img.verify()          # detects truncated files
-    except (UnidentifiedImageError, Exception):
-        result["corrupt"] = True
-        return result
-
-    # Re-open for actual pixel access (verify() closes the file)
-    try:
-        with Image.open(img_path) as pil_img:
+            pil_img.load()
             pil_img = pil_img.convert("RGB")
-            w, h = pil_img.size
-            result["width"]  = w
-            result["height"] = h
-            result["low_res"] = (w < MIN_WIDTH or h < MIN_HEIGHT)
-            result["phash"]  = str(imagehash.phash(pil_img))
+            result["width"]   = pil_img.width
+            result["height"]  = pil_img.height
+            result["low_res"] = pil_img.width < MIN_WIDTH or pil_img.height < MIN_HEIGHT
+            result["phash"]   = str(imagehash.phash(pil_img))
     except Exception:
         result["corrupt"] = True
         return result
 
-    # OpenCV for blur
     try:
-        img_bgr = cv2.imread(str(img_path))
-        if img_bgr is None:
-            result["corrupt"] = True
-            return result
-        score = laplacian_variance(img_bgr)
-        result["blur_score"] = round(score, 2)
-        result["blurry"]     = score < BLUR_THRESHOLD
+        img_bgr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+        if img_bgr is not None:
+            gray  = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+            score = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+            result["blur_score"] = round(score, 2)
+            result["blurry"]     = score < BLUR_THRESHOLD
     except Exception:
         pass
 
     return result
 
 
+def fast_dedup(rows):
+    """
+    Mark duplicates using:
+    1. Exact MD5 match (O(n))
+    2. Vectorized pHash Hamming distance via numpy (O(n²) but runs in C)
+    Returns (exact_count, near_count).
+    """
+    # Exact MD5 dedup
+    md5_seen = {}
+    exact = 0
+    for r in rows:
+        if r["corrupt"] or not r["md5"]:
+            continue
+        if r["md5"] in md5_seen:
+            r["duplicate"] = True
+            exact += 1
+        else:
+            md5_seen[r["md5"]] = True
+
+    # Gather valid (non-duplicate, non-corrupt) rows with pHash
+    valid = [r for r in rows if not r["corrupt"] and not r["duplicate"] and r["phash"]]
+    n = len(valid)
+    if n == 0:
+        return exact, 0
+
+    print(f"  Building hash matrix for {n:,} images...", flush=True)
+
+    # Convert hex pHashes → numpy bit matrix  shape (n, 64)  dtype bool
+    bits = np.array(
+        [imagehash.hex_to_hash(r["phash"]).hash.flatten() for r in valid],
+        dtype=np.bool_
+    )
+
+    # Vectorized Hamming: D[i,j] = number of differing bits
+    # hamming = rowsums[i] + rowsums[j] - 2 * dot(bits[i], bits[j])
+    # = A + A.T - 2 * (bits @ bits.T)   where A = rowsums broadcast
+    print(f"  Computing pairwise Hamming distances...", flush=True)
+    b = bits.astype(np.int8)
+    dot = b @ b.T                                # (n, n)  int
+    rowsums = b.sum(axis=1)                      # (n,)
+    D = rowsums[:, None] + rowsums[None, :] - 2 * dot  # (n, n) Hamming distances
+
+    # Mark duplicates: upper triangle only, keep first occurrence
+    near = 0
+    dup_mask = np.zeros(n, dtype=bool)
+    for i in range(n):
+        if dup_mask[i]:
+            continue
+        # Find all j > i within threshold
+        close = np.where((D[i, i+1:] <= PHASH_THRESHOLD))[0]
+        for j in close + i + 1:
+            if not dup_mask[j]:
+                dup_mask[j] = True
+                valid[j]["duplicate"] = True
+                near += 1
+
+    return exact, near
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    print("Tire Dataset Cleaning Pipeline")
-    print("=" * 60)
+    print("Tire Dataset Cleaning Pipeline", flush=True)
+    print("=" * 60, flush=True)
 
-    rows = []           # all image records
-    class_counts = defaultdict(lambda: defaultdict(int))  # dataset → class → count
-
-    # ── Phase 1: collect + quality check ──────────────────────────────────────
-    print("\n[1/3] Scanning images for quality issues...")
-
+    tasks = []
     for ds_name, ds_path, label_type, class_hint in DATASETS:
-        print(f"  {ds_name} ...", end="", flush=True)
-        n = 0
-        for img_path, dataset, label in collect_images(ds_name, ds_path, label_type, class_hint):
-            flags = check_image(img_path)
-            rows.append({
-                "path":       str(img_path),
-                "dataset":    dataset,
-                "label":      label,
-                **flags,
-                "duplicate":  False,   # filled in phase 2
-            })
-            class_counts[dataset][label] += 1
-            n += 1
-        print(f" {n} images")
+        for img_path, ds, label in collect_images(ds_name, ds_path, label_type, class_hint):
+            tasks.append((str(img_path), ds, label))
 
-    # ── Phase 2: near-duplicate detection via pHash ───────────────────────────
-    print("\n[2/3] Detecting near-duplicates (pHash)...")
+    total = len(tasks)
+    print(f"\n[1/3] Scanning {total:,} images ({WORKERS} threads)...", flush=True)
 
-    phash_groups = defaultdict(list)   # hash bucket → list of row indices
-    for i, row in enumerate(rows):
-        if row["phash"] and not row["corrupt"]:
-            phash_groups[row["phash"]].append(i)
+    rows = []
+    done = 0
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        futures = {pool.submit(check_image, t): t for t in tasks}
+        for fut in as_completed(futures):
+            rows.append(fut.result())
+            done += 1
+            if done % 1000 == 0 or done == total:
+                print(f"  {done:,}/{total:,}  ({done/total*100:.0f}%)", flush=True)
 
-    # For each group of identical hashes, mark all but the first as duplicate
-    exact_dup_count = 0
-    for indices in phash_groups.values():
-        if len(indices) > 1:
-            for idx in indices[1:]:
-                rows[idx]["duplicate"] = True
-                exact_dup_count += 1
+    print("  Done.", flush=True)
 
-    # Near-duplicate pass (Hamming distance on pHash)
-    # Collect unique hashes only to limit O(n²) cost
-    unique_hashes = {}   # hash_str → first row index
-    near_dup_count = 0
-    for i, row in enumerate(rows):
-        if row["corrupt"] or row["duplicate"] or not row["phash"]:
-            continue
-        h = imagehash.hex_to_hash(row["phash"])
-        found_near = False
-        for stored_h_str, ref_idx in unique_hashes.items():
-            stored_h = imagehash.hex_to_hash(stored_h_str)
-            if h - stored_h <= PHASH_THRESHOLD:
-                rows[i]["duplicate"] = True
-                near_dup_count += 1
-                found_near = True
-                break
-        if not found_near:
-            unique_hashes[row["phash"]] = i
+    print("\n[2/3] Detecting duplicates...", flush=True)
+    exact, near = fast_dedup(rows)
+    print(f"  Exact duplicates : {exact:,}", flush=True)
+    print(f"  Near-duplicates  : {near:,}", flush=True)
 
-    print(f"  Exact duplicates flagged : {exact_dup_count}")
-    print(f"  Near-duplicates flagged  : {near_dup_count}")
-
-    # ── Phase 3: Write outputs ────────────────────────────────────────────────
-    print("\n[3/3] Writing report...")
-
-    report_csv = DATA_ROOT / "cleaning_report.csv"
+    print("\n[3/3] Writing report...", flush=True)
     fieldnames = ["path", "dataset", "label", "corrupt", "width", "height",
                   "low_res", "blur_score", "blurry", "duplicate", "phash", "md5"]
+    report_csv = DATA_ROOT / "cleaning_report.csv"
     with open(report_csv, "w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
-    # ── Summary ───────────────────────────────────────────────────────────────
-    total         = len(rows)
-    corrupt_n     = sum(1 for r in rows if r["corrupt"])
-    low_res_n     = sum(1 for r in rows if r["low_res"] and not r["corrupt"])
-    blurry_n      = sum(1 for r in rows if r["blurry"] and not r["corrupt"])
-    duplicate_n   = sum(1 for r in rows if r["duplicate"])
-    flagged_n     = sum(1 for r in rows if r["corrupt"] or r["low_res"] or r["blurry"] or r["duplicate"])
-    clean_n       = total - flagged_n
+    corrupt_n  = sum(1 for r in rows if r["corrupt"])
+    low_res_n  = sum(1 for r in rows if r["low_res"] and not r["corrupt"])
+    blurry_n   = sum(1 for r in rows if r["blurry"] and not r["corrupt"])
+    dup_n      = sum(1 for r in rows if r["duplicate"])
+    flagged_n  = sum(1 for r in rows if r["corrupt"] or r["low_res"] or r["blurry"] or r["duplicate"])
+    clean_n    = total - flagged_n
 
-    summary_lines = [
+    class_counts = defaultdict(lambda: defaultdict(int))
+    for r in rows:
+        class_counts[r["dataset"]][r["label"]] += 1
+
+    lines = [
         "=" * 60,
         "TIRE DATASET CLEANING SUMMARY",
         "=" * 60,
         f"Total images scanned : {total:,}",
-        f"  Corrupt / unreadable : {corrupt_n:,}",
-        f"  Low resolution       : {low_res_n:,}",
-        f"  Blurry               : {blurry_n:,}  (Laplacian < {BLUR_THRESHOLD})",
-        f"  Near-duplicates      : {duplicate_n:,}  (pHash Hamming ≤ {PHASH_THRESHOLD})",
-        f"  Total flagged        : {flagged_n:,}",
-        f"  Remaining clean      : {clean_n:,}",
+        f"  Corrupt            : {corrupt_n:,}",
+        f"  Low resolution     : {low_res_n:,}",
+        f"  Blurry             : {blurry_n:,}  (Laplacian < {BLUR_THRESHOLD})",
+        f"  Near-duplicates    : {dup_n:,}  (pHash Hamming <= {PHASH_THRESHOLD})",
+        f"  Total flagged      : {flagged_n:,}",
+        f"  Remaining clean    : {clean_n:,}",
         "",
-        "─" * 60,
-        "CLASS DISTRIBUTION PER DATASET",
-        "─" * 60,
+        "-" * 60,
+        "CLASS DISTRIBUTION",
+        "-" * 60,
     ]
-
-    for ds_name, classes in sorted(class_counts.items()):
-        summary_lines.append(f"\n  [{ds_name}]")
+    for ds, classes in sorted(class_counts.items()):
+        lines.append(f"\n  [{ds}]")
         for cls, cnt in sorted(classes.items(), key=lambda x: -x[1]):
-            bar = "█" * min(cnt // 10, 50)
-            summary_lines.append(f"    {cls:<20} {cnt:>5}  {bar}")
+            bar = "#" * min(cnt // 20, 40)
+            lines.append(f"    {cls:<22} {cnt:>5}  {bar}")
 
-    summary_lines += [
+    lines += [
         "",
-        "─" * 60,
-        "RECOMMENDED ACTIONS",
-        "─" * 60,
-        "1. Review cleaning_report.csv — filter corrupt=True, then blurry=True",
-        "2. Check Tyre_Condition UNUSABLE class (only 73 images — augment heavily)",
-        "3. Decide on unified label schema before merging datasets",
-        "4. Remove confirmed duplicates before train/val split",
-        f"\nFull per-image report: {report_csv}",
+        "-" * 60,
+        "NEXT STEPS",
+        "-" * 60,
+        "1. Open data/cleaning_report.csv — filter corrupt=True first",
+        "2. Review blurry=True images (blur_score column)",
+        "3. Tyre_Condition UNUSABLE only has 73 images — augment heavily",
+        "4. Remove duplicates before train/val split",
+        f"\nReport: {report_csv}",
     ]
 
-    summary_text = "\n".join(summary_lines)
-    print("\n" + summary_text)
-
-    summary_path = DATA_ROOT / "cleaning_summary.txt"
-    with open(summary_path, "w", encoding="utf-8") as fh:
-        fh.write(summary_text)
-
-    print(f"\nDone. Reports saved to:\n  {report_csv}\n  {summary_path}")
+    summary = "\n".join(lines)
+    print("\n" + summary, flush=True)
+    (DATA_ROOT / "cleaning_summary.txt").write_text(summary, encoding="utf-8")
+    print("\nDone.", flush=True)
 
 
 if __name__ == "__main__":
