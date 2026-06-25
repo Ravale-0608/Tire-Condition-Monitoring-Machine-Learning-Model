@@ -1,12 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, Dimensions, StatusBar, Platform,
+  Animated, Easing,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import Animated, {
-  useSharedValue, withRepeat, withTiming, useAnimatedStyle,
-  Easing, cancelAnimation,
-} from 'react-native-reanimated';
 
 // ── Change this to your laptop's IP address ─────────────────────────────────
 const SERVER = 'http://REDACTED_IP:8001';
@@ -38,18 +35,20 @@ export default function App() {
   const [online, setOnline]   = useState(false);
   const cameraRef  = useRef(null);
   const busy       = useRef(false);
-  const scanAnim   = useSharedValue(0);
+  const scanAnim   = useRef(new Animated.Value(0)).current;
 
   const box = { x: W * 0.08, y: H * 0.18, w: W * 0.84, h: H * 0.50 };
 
   useEffect(() => {
     requestPermission();
-    scanAnim.value = withRepeat(
-      withTiming(1, { duration: 1800, easing: Easing.inOut(Easing.ease) }),
-      -1, true,
-    );
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(scanAnim, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(scanAnim, { toValue: 0, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    ).start();
     const timer = setInterval(capture, 700);
-    return () => { clearInterval(timer); cancelAnimation(scanAnim); };
+    return () => { clearInterval(timer); scanAnim.stopAnimation(); };
   }, []);
 
   const capture = async () => {
@@ -76,9 +75,10 @@ export default function App() {
   const hasTire = result?.has_tire !== false && result?.class && result.class !== 'no_tire';
   const color   = hasTire ? (COLORS[result.class] ?? '#22c55e') : '#3b82f6';
 
-  const lineStyle = useAnimatedStyle(() => ({
-    top: box.y + scanAnim.value * box.h - 1,
-  }));
+  const lineTop = scanAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [box.y, box.y + box.h - 2],
+  });
 
   if (!permission) return <View style={s.root} />;
 
@@ -125,8 +125,7 @@ export default function App() {
         {/* Animated scan line */}
         <Animated.View style={[
           s.scanLine,
-          { left: box.x + 8, width: box.w - 16, backgroundColor: color },
-          lineStyle,
+          { left: box.x + 8, width: box.w - 16, backgroundColor: color, top: lineTop },
         ]} />
       </View>
 
