@@ -122,49 +122,57 @@ async def ws_endpoint(websocket: WebSocket):
                 img = Image.open(io.BytesIO(raw)).convert("RGB")
                 img_w, img_h = img.size
 
-                box = None          # normalised {x, y, w, h}  (0-1)
-                crop = img         # region to classify
+                box      = None   # normalised {x, y, w, h}  (0-1)
+                has_tire = False
+                crop     = img
 
-                # ── Stage 1: detect tire location ──────────────────────────
+                # ── Stage 1: locate tire ───────────────────────────────────
                 if det_model:
-                    det_res = det_model(img, imgsz=640, conf=0.3, verbose=False)
+                    det_res = det_model(img, imgsz=640, conf=0.35, verbose=False)
                     boxes   = det_res[0].boxes
                     if boxes is not None and len(boxes):
-                        # Pick highest-confidence detection
-                        best   = int(boxes.conf.argmax())
-                        xyxy   = boxes.xyxy[best].cpu().numpy().astype(int)
-                        x1, y1, x2, y2 = int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])
-                        # Clamp to image bounds
-                        x1, y1 = max(0, x1), max(0, y1)
-                        x2, y2 = min(img_w, x2), min(img_h, y2)
-                        box  = {
-                            "x": x1 / img_w, "y": y1 / img_h,
-                            "w": (x2 - x1) / img_w, "h": (y2 - y1) / img_h,
-                        }
-                        crop = img.crop((x1, y1, x2, y2))
+                        best        = int(boxes.conf.argmax())
+                        xyxy        = boxes.xyxy[best].cpu().numpy().astype(int)
+                        x1, y1, x2, y2 = (
+                            max(0, int(xyxy[0])), max(0, int(xyxy[1])),
+                            min(img_w, int(xyxy[2])), min(img_h, int(xyxy[3])),
+                        )
+                        box      = {"x": x1/img_w, "y": y1/img_h,
+                                    "w": (x2-x1)/img_w, "h": (y2-y1)/img_h}
+                        crop     = img.crop((x1, y1, x2, y2))
+                        has_tire = True
                 else:
-                    # Fallback: center 65% crop
+                    # Fallback: classify center crop, gate on no_tire class
                     pad_x = int(img_w * 0.175)
                     pad_y = int(img_h * 0.175)
-                    box   = {"x": 0.175, "y": 0.175, "w": 0.65, "h": 0.65}
                     crop  = img.crop((pad_x, pad_y, img_w - pad_x, img_h - pad_y))
+                    # Run a quick pre-check before committing to a box
+                    pre       = cls_model(crop, verbose=False)
+                    pre_name  = cls_model.names[int(pre[0].probs.top1)]
+                    pre_conf  = float(pre[0].probs.top1conf)
+                    has_tire  = (pre_name != "no_tire" and pre_conf >= 0.55)
+                    if has_tire:
+                        box = {"x": 0.175, "y": 0.175, "w": 0.65, "h": 0.65}
 
-                # ── Stage 2: classify condition ────────────────────────────
-                cls_res  = cls_model(crop, verbose=False)
-                probs    = cls_res[0].probs
-                top_idx  = int(probs.top1)
-                top_conf = float(probs.top1conf)
-                cls_name = cls_model.names[top_idx]
-                info     = CLASS_INFO.get(cls_name, {"label": cls_name, "color": "#ffffff"})
+                if not has_tire:
+                    payload = {"has_tire": False}
+                else:
+                    # ── Stage 2: classify condition ────────────────────────
+                    cls_res  = cls_model(crop, verbose=False)
+                    probs    = cls_res[0].probs
+                    top_idx  = int(probs.top1)
+                    top_conf = float(probs.top1conf)
+                    cls_name = cls_model.names[top_idx]
+                    info     = CLASS_INFO.get(cls_name, {"label": cls_name, "color": "#ffffff"})
 
-                payload = {
-                    "box":        box,
-                    "class":      cls_name,
-                    "label":      info["label"],
-                    "color":      info["color"],
-                    "confidence": round(top_conf * 100, 1),
-                    "det_model":  det_model is not None,
-                }
+                    payload = {
+                        "has_tire":   True,
+                        "box":        box,
+                        "class":      cls_name,
+                        "label":      info["label"],
+                        "color":      info["color"],
+                        "confidence": round(top_conf * 100, 1),
+                    }
 
             except Exception as e:
                 payload = {"error": str(e)}

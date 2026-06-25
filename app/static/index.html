@@ -199,7 +199,7 @@ function startWS() {
   ws.onmessage = (e) => {
     try {
       const data = JSON.parse(e.data);
-      if (!data.error) lastResult = data;
+      if (!data.error) lastResult = data.has_tire ? data : null;
     } catch (_) {}
     sendPending = false;
     scheduleCapture();
@@ -251,8 +251,9 @@ function drawLoop() {
     drawScanLine(bx, by, bw, bh, color);
     updateResultBar(res);
   } else {
-    // No result yet — draw a centered placeholder ring
-    drawTargetRing(W, H, color);
+    // No tire — hide result bar and show idle ring
+    resultBar.classList.remove('visible');
+    drawTargetRing(W, H, '#3b82f6');
   }
 
   // Advance scan line
