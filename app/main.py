@@ -183,6 +183,16 @@ async def ws_endpoint(websocket: WebSocket):
         pass
 
 
+async def _run_servers(cert, key):
+    https_cfg = uvicorn.Config(app, host="0.0.0.0", port=8000,
+                               ssl_certfile=str(cert), ssl_keyfile=str(key), log_level="warning")
+    http_cfg  = uvicorn.Config(app, host="0.0.0.0", port=8001, log_level="warning")
+    await asyncio.gather(
+        uvicorn.Server(https_cfg).serve(),
+        uvicorn.Server(http_cfg).serve(),
+    )
+
+
 if __name__ == "__main__":
     ip       = socket.gethostbyname(socket.gethostname())
     cert_dir = Path(__file__).parent
@@ -190,9 +200,8 @@ if __name__ == "__main__":
     key      = cert_dir / "key.pem"
     ensure_ssl_cert(cert, key)
 
-    print(f"\n  Tire Scanner (HTTPS — camera enabled)")
-    print(f"  Local : https://localhost:8000")
-    print(f"  Phone : https://{ip}:8000")
-    print(f"\n  On your phone: open the URL, tap 'Advanced' -> 'Proceed' to trust the cert.\n")
+    print(f"\n  Tire Scanner")
+    print(f"  Browser (HTTPS) : https://{ip}:8000")
+    print(f"  Mobile app (HTTP): http://{ip}:8001\n")
 
-    uvicorn.run(app, host="0.0.0.0", port=8000, ssl_certfile=str(cert), ssl_keyfile=str(key))
+    asyncio.run(_run_servers(cert, key))

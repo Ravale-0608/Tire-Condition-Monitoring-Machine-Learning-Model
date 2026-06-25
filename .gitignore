@@ -42,3 +42,5 @@ app/key.pem
 # OS
 .DS_Store
 Thumbs.db
+
+mobile/node_modules/
