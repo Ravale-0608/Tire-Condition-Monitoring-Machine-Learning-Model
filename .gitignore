@@ -35,6 +35,10 @@ runs/
 # Jupyter
 .ipynb_checkpoints/
 
+# SSL certs (auto-generated at runtime)
+app/cert.pem
+app/key.pem
+
 # OS
 .DS_Store
 Thumbs.db

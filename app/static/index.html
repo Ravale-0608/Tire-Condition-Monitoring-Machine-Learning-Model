@@ -188,7 +188,7 @@ window.addEventListener('resize', resizeCanvas);
 
 // ── WebSocket ────────────────────────────────────────────────────────────
 function startWS() {
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws = new WebSocket(`wss://${location.host}/ws`);
   ws.binaryType = 'blob';
 
   ws.onopen = () => {

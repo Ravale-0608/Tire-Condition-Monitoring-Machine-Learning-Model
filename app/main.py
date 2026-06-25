@@ -11,8 +11,11 @@ Run:  python app/main.py
 """
 
 import asyncio
+import datetime
 import io
+import ipaddress
 import json
+import socket
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +25,44 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from ultralytics import YOLO
+
+# ── Auto-generate self-signed TLS cert (needed for camera on mobile) ──────────
+def ensure_ssl_cert(cert_path: Path, key_path: Path):
+    if cert_path.exists() and key_path.exists():
+        return
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    local_ip = socket.gethostbyname(socket.gethostname())
+
+    subject = issuer = x509.Name([
+        x509.NameAttribute(NameOID.COMMON_NAME, "tire-scanner"),
+    ])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.datetime.utcnow())
+        .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=825))
+        .add_extension(x509.SubjectAlternativeName([
+            x509.DNSName("localhost"),
+            x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
+            x509.IPAddress(ipaddress.IPv4Address(local_ip)),
+        ]), critical=False)
+        .sign(key, hashes.SHA256())
+    )
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_path.write_bytes(key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    ))
+    print(f"  SSL cert generated: {cert_path.name}")
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 BASE        = Path(__file__).parent.parent
@@ -135,9 +176,15 @@ async def ws_endpoint(websocket: WebSocket):
 
 
 if __name__ == "__main__":
-    import socket
-    ip = socket.gethostbyname(socket.gethostname())
-    print(f"\n  Tire Scanner (video mode)")
-    print(f"  Local : http://localhost:8000")
-    print(f"  Phone : http://{ip}:8000\n")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    ip       = socket.gethostbyname(socket.gethostname())
+    cert_dir = Path(__file__).parent
+    cert     = cert_dir / "cert.pem"
+    key      = cert_dir / "key.pem"
+    ensure_ssl_cert(cert, key)
+
+    print(f"\n  Tire Scanner (HTTPS — camera enabled)")
+    print(f"  Local : https://localhost:8000")
+    print(f"  Phone : https://{ip}:8000")
+    print(f"\n  On your phone: open the URL, tap 'Advanced' -> 'Proceed' to trust the cert.\n")
+
+    uvicorn.run(app, host="0.0.0.0", port=8000, ssl_certfile=str(cert), ssl_keyfile=str(key))
