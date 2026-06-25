@@ -5,8 +5,7 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 
-// ── Change this to your laptop's IP address ─────────────────────────────────
-const SERVER = 'http://REDACTED_IP:8001';
+import { SERVER } from './config';
 
 const COLORS = {
   no_tire:   '#6b7280',

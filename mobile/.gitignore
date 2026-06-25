@@ -33,6 +33,9 @@ yarn-error.*
 # local env files
 .env*.local
 
+# Local server config (contains IP address — never commit)
+config.js
+
 # typescript
 *.tsbuildinfo
 
