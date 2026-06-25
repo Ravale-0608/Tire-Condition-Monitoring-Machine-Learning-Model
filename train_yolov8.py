@@ -47,7 +47,7 @@ TRAIN_CONFIG = {
     "verbose":    True,
 }
 
-
+# Error persists
 def main():
     if not DATA_ROOT.exists():
         print("ERROR: data/unified/ not found. Run build_dataset.py first.")
