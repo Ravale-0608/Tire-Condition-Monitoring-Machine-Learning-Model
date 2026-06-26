@@ -1,59 +1,61 @@
-﻿{
-    "expo":  {
-                 "name":  "tire-scanner",
-                 "slug":  "tire-scanner",
-                 "newArchEnabled":  false,
-                 "version":  "1.0.0",
-                 "orientation":  "portrait",
-                 "icon":  "./assets/icon.png",
-                 "userInterfaceStyle":  "light",
-                 "ios":  {
-                             "supportsTablet":  true,
-                             "infoPlist":  {
-                                               "NSCameraUsageDescription":  "Tire Scanner needs the camera to scan tires.",
-                                               "NSAppTransportSecurity":  {
-                                                                              "NSAllowsArbitraryLoads":  true
-                                                                          }
-                                           }
-                         },
-                 "android":  {
-                                 "usesCleartextTraffic":  true,
-                                 "compileSdkVersion":  35,
-                                 "targetSdkVersion":  34,
-                                 "minSdkVersion":  24,
-                                 "adaptiveIcon":  {
-                                                      "backgroundColor":  "#E6F4FE",
-                                                      "foregroundImage":  "./assets/android-icon-foreground.png",
-                                                      "backgroundImage":  "./assets/android-icon-background.png",
-                                                      "monochromeImage":  "./assets/android-icon-monochrome.png"
-                                                  },
-                                 "permissions":  [
-                                                     "android.permission.CAMERA",
-                                                     "android.permission.RECORD_AUDIO"
-                                                 ],
-                                 "package":  "com.ravale.tirescanner"
-                             },
-                 "web":  {
-                             "favicon":  "./assets/favicon.png"
-                         },
-                 "plugins":  [
-                                 "expo-camera",
-                                 {
-                                     "cameraPermission":  "Allow Tire Scanner to use the camera."
-                                 },
-                                 [
-                                     "expo-build-properties",
-                                     {
-                                         "android":  {
-                                                         "kotlinVersion":  "2.1.0"
-                                                     }
-                                     }
-                                 ]
-                             ],
-                 "extra":  {
-                               "eas":  {
-                                           "projectId":  "4b40b0ce-46cc-4db8-9bde-6758e98cae0a"
-                                       }
-                           }
-             }
+{
+  "expo": {
+    "name": "tire-scanner",
+    "slug": "tire-scanner",
+    "newArchEnabled": false,
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Tire Scanner needs the camera to scan tires.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    },
+    "android": {
+      "usesCleartextTraffic": true,
+      "compileSdkVersion": 35,
+      "targetSdkVersion": 34,
+      "minSdkVersion": 24,
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.ravale.tirescanner"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Tire Scanner to use the camera."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "2.1.0"
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "4b40b0ce-46cc-4db8-9bde-6758e98cae0a"
+      }
+    }
+  }
 }
