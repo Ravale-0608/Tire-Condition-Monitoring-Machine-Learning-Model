@@ -49,7 +49,8 @@
             "kotlinVersion": "2.1.0"
           }
         }
-      ]
+      ],
+      "./plugins/fix-bundle-compression"
     ],
     "extra": {
       "eas": {
