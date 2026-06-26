@@ -4,9 +4,10 @@
 const { withAppBuildGradle } = require('@expo/config-plugins');
 
 module.exports = withAppBuildGradle((config) => {
+  if (!config.modResults?.contents) return config;
   config.modResults.contents = config.modResults.contents.replace(
-    /\s*enableBundleCompression\s*=\s*(true|false)\n?/g,
-    '\n'
+    /[ \t]*enableBundleCompression\s*=\s*(true|false)\s*\n?/g,
+    ''
   );
   return config;
 });
