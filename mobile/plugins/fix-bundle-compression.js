@@ -1,13 +1,30 @@
-// Removes enableBundleCompression from the generated app/build.gradle.
-// This property was deleted from ReactExtension in React Native 0.76
-// but Expo SDK 54's prebuild template still sets it, causing a Gradle failure.
-const { withAppBuildGradle } = require('@expo/config-plugins');
+// Removes enableBundleCompression from the generated android/app/build.gradle.
+// Property was removed from ReactExtension in RN 0.76 but Expo SDK 54's
+// prebuild template still sets it, causing a Gradle build failure.
+const { withDangerousMod } = require('@expo/config-plugins');
+const path = require('path');
+const fs = require('fs');
 
-module.exports = withAppBuildGradle((config) => {
-  if (!config.modResults?.contents) return config;
-  config.modResults.contents = config.modResults.contents.replace(
-    /[ \t]*enableBundleCompression\s*=\s*(true|false)\s*\n?/g,
-    ''
-  );
-  return config;
-});
+module.exports = function withFixBundleCompression(config) {
+  return withDangerousMod(config, [
+    'android',
+    (config) => {
+      const gradlePath = path.join(
+        config.modRequest.platformProjectRoot,
+        'app',
+        'build.gradle'
+      );
+      if (!fs.existsSync(gradlePath)) return config;
+
+      let contents = fs.readFileSync(gradlePath, 'utf8');
+      const patched = contents.replace(/^[^\n]*enableBundleCompression[^\n]*\n?/gm, '');
+
+      if (patched !== contents) {
+        fs.writeFileSync(gradlePath, patched, 'utf8');
+        console.log('[fix-bundle-compression] Removed enableBundleCompression from app/build.gradle');
+      }
+
+      return config;
+    },
+  ]);
+};
