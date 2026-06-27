@@ -25,10 +25,11 @@ from collections import defaultdict
 from pathlib import Path
 
 DATA_ROOT = Path(__file__).parent / "data"
+NEW_DATA  = Path(__file__).parent / "new data"
 OUT_ROOT  = DATA_ROOT / "unified"
 
 SPLITS = {"train": 0.80, "val": 0.10, "test": 0.10}
-MAX_PER_CLASS = 500    # cap large classes so no single class dominates
+MAX_PER_CLASS = 1000   # raised cap — more data now available
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 SEED = 42
 
@@ -134,6 +135,9 @@ def main():
     all_items["defective"] += collect_flat_folder(
         DATA_ROOT / "Tyre_Condition_Dataset" / "UNUSABLE", "defective"
     )
+    # New data — labeled Defective and cracked
+    all_items["defective"] += collect_flat_folder(NEW_DATA / "Defective",                         "defective")
+    all_items["defective"] += collect_flat_folder(NEW_DATA / "training_data" / "cracked",         "defective")
 
     # ── worn ──────────────────────────────────────────────────────────────────
     for split in ("train", "valid", "test"):
@@ -156,6 +160,9 @@ def main():
     all_items["good"] += collect_flat_folder(
         DATA_ROOT / "Tyre_Condition_Dataset" / "SERVICEABLE", "good"
     )
+    # New data — labeled Good and normal
+    all_items["good"] += collect_flat_folder(NEW_DATA / "Good",                                  "good")
+    all_items["good"] += collect_flat_folder(NEW_DATA / "training_data" / "normal",              "good")
 
     # ── new ───────────────────────────────────────────────────────────────────
     all_items["new"] += collect_flat_folder(
@@ -191,6 +198,29 @@ def main():
     print(f"  val   : {split_totals['val']:,} images")
     print(f"  test  : {split_totals['test']:,} images")
     print(f"  TOTAL : {sum(split_totals.values()):,} images")
+
+    # ── Holdout test set (never seen during training or val) ─────────────────
+    holdout_root = OUT_ROOT / "holdout"
+    holdout_map  = {
+        "defective": [NEW_DATA / "testing_data" / "cracked"],
+        "good":      [NEW_DATA / "testing_data" / "normal"],
+    }
+    holdout_counts = defaultdict(int)
+    for label, folders in holdout_map.items():
+        dst_dir = holdout_root / label
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        for folder in folders:
+            for img in folder.iterdir():
+                if img.suffix.lower() in IMAGE_EXTS:
+                    dst = dst_dir / img.name
+                    if dst.exists():
+                        dst = dst_dir / f"{img.parent.name}_{img.name}"
+                    shutil.copy2(str(img), str(dst))
+                    holdout_counts[label] += 1
+
+    print(f"\nHoldout test set (completely unseen):")
+    for lbl, cnt in holdout_counts.items():
+        print(f"  {lbl:<12} {cnt:>4}")
 
     # Write a data.yaml for reference
     yaml_text = (
