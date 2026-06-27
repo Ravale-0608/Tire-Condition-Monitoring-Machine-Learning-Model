@@ -232,7 +232,7 @@ def _run_inference(img: Image.Image) -> dict:
         pre   = cls_model(crop, verbose=False)
         pre_name = cls_model.names[int(pre[0].probs.top1)]
         pre_conf = float(pre[0].probs.top1conf)
-        has_tire = (pre_name != "no_tire" and pre_conf >= 0.40)
+        has_tire = (pre_name != "no_tire" and pre_conf >= 0.25)
         if has_tire:
             box = {"x": 0.175, "y": 0.175, "w": 0.65, "h": 0.65}
 
