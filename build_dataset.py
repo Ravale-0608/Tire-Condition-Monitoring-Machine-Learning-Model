@@ -29,7 +29,7 @@ NEW_DATA  = Path(__file__).parent / "new data"
 OUT_ROOT  = DATA_ROOT / "unified"
 
 SPLITS = {"train": 0.80, "val": 0.10, "test": 0.10}
-MAX_PER_CLASS = 1000   # raised cap — more data now available
+MAX_PER_CLASS = None   # no cap — use all available data
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 SEED = 42
 
@@ -168,12 +168,6 @@ def main():
     all_items["new"] += collect_flat_folder(
         DATA_ROOT / "Tyre_Condition_Dataset" / "NEW", "new"
     )
-
-    # ── Cap large classes ─────────────────────────────────────────────────────
-    for label in all_items:
-        if len(all_items[label]) > MAX_PER_CLASS:
-            random.shuffle(all_items[label])
-            all_items[label] = all_items[label][:MAX_PER_CLASS]
 
     # ── Summary before split ──────────────────────────────────────────────────
     print("Image counts per class (after cap):")

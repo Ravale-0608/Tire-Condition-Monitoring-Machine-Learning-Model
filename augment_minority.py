@@ -39,11 +39,13 @@ DATA_ROOT = Path(__file__).parent / "data"
 
 # (folder, current_count, target_count)
 TARGETS = [
-    (DATA_ROOT / "flat.class",                          99,   300),
-    (DATA_ROOT / "Tyre_Condition_Dataset" / "NEW",      30,   300),
-    (DATA_ROOT / "no-tire.class",                       235,  300),
-    (DATA_ROOT / "full.class",                          67,   300),
-    (DATA_ROOT / "Tyre_Condition_Dataset" / "SERVICEABLE", 87, 300),
+    # Minority classes — augment to 800 to compete with defective/good/worn
+    (DATA_ROOT / "flat.class",                             300,  800),
+    (DATA_ROOT / "Tyre_Condition_Dataset" / "NEW",         300,  800),
+    (DATA_ROOT / "no-tire.class",                          300,  800),
+    # Supporting good sources — augment to be meaningful
+    (DATA_ROOT / "full.class",                             300,  500),
+    (DATA_ROOT / "Tyre_Condition_Dataset" / "SERVICEABLE", 300,  500),
 ]
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
